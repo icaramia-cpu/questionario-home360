@@ -96,6 +96,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 @keyframes battito { 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .voce[aria-pressed="true"]::before { animation: none; } }
 .done { border-top-color: var(--accent); }
+#scheda { scroll-margin-top: 1.5rem; }
 [hidden] { display: none !important; }
 @media (max-width: 30rem) { h1 { font-size: 2rem; } }
 </style>
@@ -370,7 +371,14 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
     mostra(null); window.scrollTo(0, 0);
   });
 
-  function daHash() { mostra((location.hash || '').replace('#', '')); }
+  function daHash() {
+    mostra((location.hash || '').replace('#', ''));
+    // Scelta la persona, la pagina scende da sola alla sua scheda.
+    if (persona) {
+      var lento = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el('scheda').scrollIntoView({ behavior: lento ? 'auto' : 'smooth', block: 'start' });
+    }
+  }
   window.addEventListener('hashchange', daHash);
   daHash();
 
