@@ -212,54 +212,63 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 
   // Dettatura: usa il riconoscimento vocale del browser, se c'è. Altrimenti resta il microfono della tastiera.
   var Riconoscitore = window.SpeechRecognition || window.webkitSpeechRecognition || null;
-  var voceAttiva = true, attivo = null, inAttesa = null;   // attivo: {r, ta, m} della dettatura in corso
+  var voceAttiva = true, attivo = null;   // attivo: {r, ta, m} della dettatura in corso
+  var suAndroid = /Android/i.test(navigator.userAgent);
   function notaVoce() {
     el('voce-nota').textContent = (Riconoscitore && voceAttiva)
       ? 'Puoi rispondere a voce: premi «Rispondi a voce» sotto una domanda, parla, e premi di nuovo per fermare. Il testo si può correggere a mano.'
       : 'Puoi rispondere a voce: tocca una casella e usa il tasto con il microfono sulla tastiera del telefono. Il testo si può correggere a mano.';
   }
   function spento(m) { m.setAttribute('aria-pressed', 'false'); m.textContent = 'Rispondi a voce'; }
+  // Chiude l'ascolto in corso. Il testo è già nella casella perché si scrive mentre si parla.
   function fermaVoce() {
-    inAttesa = null;
-    if (attivo) { spento(attivo.m); try { attivo.r.stop(); } catch (e) {} }
+    if (!attivo) return;
+    var s = attivo; attivo = null; spento(s.m);
+    try { s.r.stop(); } catch (e) {}
+    // Su iPhone a volte l'ascolto non si chiude da solo: dopo un attimo lo si interrompe.
+    setTimeout(function () { if (!s.finita) { try { s.r.abort(); } catch (e) {} } }, 1200);
   }
-  // Il browser tiene un solo ascolto alla volta: il successivo parte solo quando il precedente è davvero finito.
-  function avvia(ta, m) {
+  function avvia(ta, m, tentativo) {
+    if (attivo || !voceAttiva) return;
     var r;
     try { r = new Riconoscitore(); } catch (e) { spegniVoce(); return; }
-    var sessione = { r: r, ta: ta, m: m };
-    r.lang = 'it-IT'; r.continuous = true; r.interimResults = false;
+    var prima = ta.value.replace(/\s+$/, '');
+    var sessione = { r: r, ta: ta, m: m, finita: false };
+    r.lang = 'it-IT'; r.interimResults = true; r.continuous = !suAndroid;
     r.onresult = function (ev) {
       var testo = '';
-      for (var i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) testo += ev.results[i][0].transcript;
-      testo = testo.trim(); if (!testo) return;
-      ta.value = (ta.value.trim() ? ta.value.replace(/\s+$/, '') + ' ' : '') + testo;
+      for (var i = 0; i < ev.results.length; i++) testo += ev.results[i][0].transcript;
+      testo = testo.replace(/\s+/g, ' ').trim(); if (!testo) return;
+      ta.value = (prima ? prima + ' ' : '') + testo;
       ta.dispatchEvent(new Event('input'));
     };
     r.onerror = function (ev) {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { attivo = null; spegniVoce(); }
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { sessione.finita = true; attivo = null; spegniVoce(); }
     };
     r.onend = function () {
-      spento(m);
-      if (attivo === sessione) attivo = null;
-      if (inAttesa && voceAttiva) { var p = inAttesa; inAttesa = null; setTimeout(function () { if (!attivo) avvia(p.ta, p.m); }, 200); }
+      sessione.finita = true;
+      if (attivo === sessione) { attivo = null; spento(m); }
     };
-    try { r.start(); } catch (e) { spento(m); return; }
+    try { r.start(); } catch (e) {
+      // L'ascolto precedente non è ancora chiuso: si riprova due volte, poi si lascia il pulsante pronto.
+      if ((tentativo || 0) < 2) { setTimeout(function () { avvia(ta, m, (tentativo || 0) + 1); }, tentativo ? 600 : 250); }
+      else spento(m);
+      return;
+    }
     attivo = sessione;
     m.setAttribute('aria-pressed', 'true'); m.textContent = 'Sto ascoltando · premi per fermare';
   }
   function detta(ta, m) {
     if (attivo && attivo.m === m) { fermaVoce(); return; }
     if (attivo) {
-      inAttesa = { ta: ta, m: m }; spento(attivo.m);
-      m.setAttribute('aria-pressed', 'true'); m.textContent = 'Un attimo…';
-      try { attivo.r.stop(); } catch (e) { attivo = null; inAttesa = null; avvia(ta, m); }
-      return;
+      // Si passa a un'altra domanda: la precedente si interrompe subito e la nuova parte nello stesso tocco.
+      var s = attivo; attivo = null; spento(s.m);
+      try { s.r.abort(); } catch (e) {}
     }
-    avvia(ta, m);
+    m.setAttribute('aria-pressed', 'true'); m.textContent = 'Un attimo…';
+    avvia(ta, m, 0);
   }
   function spegniVoce() {
-    inAttesa = null;
     if (attivo) { try { attivo.r.abort(); } catch (e) {} attivo = null; }
     voceAttiva = false;
     Array.prototype.forEach.call(document.querySelectorAll('.voce'), function (b) { b.remove(); });
