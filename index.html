@@ -212,22 +212,22 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 
   // Dettatura: usa il riconoscimento vocale del browser, se c'è. Altrimenti resta il microfono della tastiera.
   var Riconoscitore = window.SpeechRecognition || window.webkitSpeechRecognition || null;
-  var voceAttiva = true, ascolto = null, pulsanteAscolto = null;
+  var voceAttiva = true, attivo = null, inAttesa = null;   // attivo: {r, ta, m} della dettatura in corso
   function notaVoce() {
     el('voce-nota').textContent = (Riconoscitore && voceAttiva)
       ? 'Puoi rispondere a voce: premi «Rispondi a voce» sotto una domanda, parla, e premi di nuovo per fermare. Il testo si può correggere a mano.'
       : 'Puoi rispondere a voce: tocca una casella e usa il tasto con il microfono sulla tastiera del telefono. Il testo si può correggere a mano.';
   }
+  function spento(m) { m.setAttribute('aria-pressed', 'false'); m.textContent = 'Rispondi a voce'; }
   function fermaVoce() {
-    if (ascolto) { try { ascolto.stop(); } catch (e) {} }
-    if (pulsanteAscolto) { pulsanteAscolto.setAttribute('aria-pressed', 'false'); pulsanteAscolto.textContent = 'Rispondi a voce'; }
-    ascolto = null; pulsanteAscolto = null;
+    inAttesa = null;
+    if (attivo) { spento(attivo.m); try { attivo.r.stop(); } catch (e) {} }
   }
-  function detta(ta, m) {
-    if (pulsanteAscolto === m) { fermaVoce(); return; }
-    fermaVoce();
+  // Il browser tiene un solo ascolto alla volta: il successivo parte solo quando il precedente è davvero finito.
+  function avvia(ta, m) {
     var r;
     try { r = new Riconoscitore(); } catch (e) { spegniVoce(); return; }
+    var sessione = { r: r, ta: ta, m: m };
     r.lang = 'it-IT'; r.continuous = true; r.interimResults = false;
     r.onresult = function (ev) {
       var testo = '';
@@ -237,15 +237,31 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
       ta.dispatchEvent(new Event('input'));
     };
     r.onerror = function (ev) {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') spegniVoce();
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { attivo = null; spegniVoce(); }
     };
-    r.onend = function () { if (ascolto === r) fermaVoce(); };
-    try { r.start(); } catch (e) { spegniVoce(); return; }
-    ascolto = r; pulsanteAscolto = m;
+    r.onend = function () {
+      spento(m);
+      if (attivo === sessione) attivo = null;
+      if (inAttesa && voceAttiva) { var p = inAttesa; inAttesa = null; setTimeout(function () { if (!attivo) avvia(p.ta, p.m); }, 200); }
+    };
+    try { r.start(); } catch (e) { spento(m); return; }
+    attivo = sessione;
     m.setAttribute('aria-pressed', 'true'); m.textContent = 'Sto ascoltando · premi per fermare';
   }
+  function detta(ta, m) {
+    if (attivo && attivo.m === m) { fermaVoce(); return; }
+    if (attivo) {
+      inAttesa = { ta: ta, m: m }; spento(attivo.m);
+      m.setAttribute('aria-pressed', 'true'); m.textContent = 'Un attimo…';
+      try { attivo.r.stop(); } catch (e) { attivo = null; inAttesa = null; avvia(ta, m); }
+      return;
+    }
+    avvia(ta, m);
+  }
   function spegniVoce() {
-    fermaVoce(); voceAttiva = false;
+    inAttesa = null;
+    if (attivo) { try { attivo.r.abort(); } catch (e) {} attivo = null; }
+    voceAttiva = false;
     Array.prototype.forEach.call(document.querySelectorAll('.voce'), function (b) { b.remove(); });
     notaVoce();
   }
