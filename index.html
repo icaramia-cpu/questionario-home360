@@ -5,6 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Questionario Company Brain Home360</title>
+<!-- versione voce 3 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500&family=Outfit:wght@500&display=swap" rel="stylesheet">
 <style>
@@ -212,64 +213,66 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 
   // Dettatura: usa il riconoscimento vocale del browser, se c'è. Altrimenti resta il microfono della tastiera.
   var Riconoscitore = window.SpeechRecognition || window.webkitSpeechRecognition || null;
-  var voceAttiva = true, attivo = null;   // attivo: {r, ta, m} della dettatura in corso
+  var voceAttiva = true, rec = null, inAscolto = false, bersaglio = null;   // bersaglio: {ta, m} che riceve il testo
+  var prima = '', taglio = 0, ultimoTesto = '';
   var suAndroid = /Android/i.test(navigator.userAgent);
   function notaVoce() {
     el('voce-nota').textContent = (Riconoscitore && voceAttiva)
-      ? 'Puoi rispondere a voce: premi «Rispondi a voce» sotto una domanda, parla, e premi di nuovo per fermare. Il testo si può correggere a mano.'
+      ? 'Puoi rispondere a voce: premi «Rispondi a voce» sotto una domanda e parla. Per passare a un\'altra domanda premi il suo pulsante; per fermare premi di nuovo quello acceso. Il testo si può correggere a mano.'
       : 'Puoi rispondere a voce: tocca una casella e usa il tasto con il microfono sulla tastiera del telefono. Il testo si può correggere a mano.';
   }
   function spento(m) { m.setAttribute('aria-pressed', 'false'); m.textContent = 'Rispondi a voce'; }
-  // Chiude l'ascolto in corso. Il testo è già nella casella perché si scrive mentre si parla.
-  function fermaVoce() {
-    if (!attivo) return;
-    var s = attivo; attivo = null; spento(s.m);
-    try { s.r.stop(); } catch (e) {}
-    // Su iPhone a volte l'ascolto non si chiude da solo: dopo un attimo lo si interrompe.
-    setTimeout(function () { if (!s.finita) { try { s.r.abort(); } catch (e) {} } }, 1200);
-  }
-  function avvia(ta, m, tentativo) {
-    if (attivo || !voceAttiva) return;
-    var r;
-    try { r = new Riconoscitore(); } catch (e) { spegniVoce(); return; }
-    var prima = ta.value.replace(/\s+$/, '');
-    var sessione = { r: r, ta: ta, m: m, finita: false };
-    r.lang = 'it-IT'; r.interimResults = true; r.continuous = !suAndroid;
-    r.onresult = function (ev) {
+  function acceso(m) { m.setAttribute('aria-pressed', 'true'); m.textContent = 'Sto ascoltando · premi per fermare'; }
+  // Un solo ascolto per tutta la pagina, sempre lo stesso: su iPhone un secondo ascolto nuovo spesso non parte.
+  function ascoltatore() {
+    if (rec) return rec;
+    rec = new Riconoscitore();
+    rec.lang = 'it-IT'; rec.interimResults = true; rec.continuous = !suAndroid;
+    rec.onstart = function () { inAscolto = true; };
+    rec.onresult = function (ev) {
       var testo = '';
       for (var i = 0; i < ev.results.length; i++) testo += ev.results[i][0].transcript;
-      testo = testo.replace(/\s+/g, ' ').trim(); if (!testo) return;
-      ta.value = (prima ? prima + ' ' : '') + testo;
-      ta.dispatchEvent(new Event('input'));
+      ultimoTesto = testo;
+      if (!bersaglio) return;
+      var pezzo = testo.slice(taglio).replace(/\s+/g, ' ').trim(); if (!pezzo) return;
+      bersaglio.ta.value = (prima ? prima + ' ' : '') + pezzo;
+      bersaglio.ta.dispatchEvent(new Event('input'));
     };
-    r.onerror = function (ev) {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { sessione.finita = true; attivo = null; spegniVoce(); }
+    rec.onerror = function (ev) {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') spegniVoce();
     };
-    r.onend = function () {
-      sessione.finita = true;
-      if (attivo === sessione) { attivo = null; spento(m); }
+    rec.onend = function () {
+      inAscolto = false; ultimoTesto = ''; taglio = 0;
+      if (bersaglio) { spento(bersaglio.m); bersaglio = null; }
     };
-    try { r.start(); } catch (e) {
-      // L'ascolto precedente non è ancora chiuso: si riprova due volte, poi si lascia il pulsante pronto.
-      if ((tentativo || 0) < 2) { setTimeout(function () { avvia(ta, m, (tentativo || 0) + 1); }, tentativo ? 600 : 250); }
-      else spento(m);
-      return;
-    }
-    attivo = sessione;
-    m.setAttribute('aria-pressed', 'true'); m.textContent = 'Sto ascoltando · premi per fermare';
+    return rec;
+  }
+  function fermaVoce() {
+    if (bersaglio) { spento(bersaglio.m); bersaglio = null; }
+    if (!rec || !inAscolto) return;
+    try { rec.stop(); } catch (e) {}
+    // Su iPhone a volte l'ascolto non si chiude da solo: dopo un attimo lo si interrompe.
+    setTimeout(function () { if (inAscolto && !bersaglio) { try { rec.abort(); } catch (e) {} } }, 1500);
   }
   function detta(ta, m) {
-    if (attivo && attivo.m === m) { fermaVoce(); return; }
-    if (attivo) {
-      // Si passa a un'altra domanda: la precedente si interrompe subito e la nuova parte nello stesso tocco.
-      var s = attivo; attivo = null; spento(s.m);
-      try { s.r.abort(); } catch (e) {}
+    if (bersaglio && bersaglio.m === m) { fermaVoce(); return; }
+    var r;
+    try { r = ascoltatore(); } catch (e) { spegniVoce(); return; }
+    if (bersaglio) spento(bersaglio.m);
+    // Da qui in poi il parlato va in questa casella: l'ascolto, se è già aperto, resta aperto.
+    bersaglio = { ta: ta, m: m };
+    prima = ta.value.replace(/\s+$/, '');
+    taglio = ultimoTesto.length;
+    acceso(m);
+    if (!inAscolto) {
+      taglio = 0; ultimoTesto = '';
+      // Se l'ascolto è ancora aperto il browser rifiuta la partenza: va bene così, sta già ascoltando.
+      try { r.start(); } catch (e) {}
     }
-    m.setAttribute('aria-pressed', 'true'); m.textContent = 'Un attimo…';
-    avvia(ta, m, 0);
   }
   function spegniVoce() {
-    if (attivo) { try { attivo.r.abort(); } catch (e) {} attivo = null; }
+    bersaglio = null;
+    if (rec) { try { rec.abort(); } catch (e) {} }
     voceAttiva = false;
     Array.prototype.forEach.call(document.querySelectorAll('.voce'), function (b) { b.remove(); });
     notaVoce();
