@@ -187,13 +187,13 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
   }
 
   function scriviRemoto() {
-    if (!db || !uid || !persona) { stato('Salvato solo su questo dispositivo', true); return; }
+    if (!db || !uid || !persona) { stato('Salvato su questo dispositivo'); return; }
     if (inScrittura) { daRiscrivere = true; return; }
     inScrittura = true; stato('Salvataggio in corso');
     remoto.schede[persona[0]] = pacchetto();
     Promise.resolve().then(function () { return db.doc('risposte/' + uid).set(remoto); })
       .then(function () { stato('Salvato'); })
-      .catch(function () { stato('Salvato solo su questo dispositivo', true); })
+      .catch(function () { stato('Salvato su questo dispositivo'); })
       .then(function () { inScrittura = false; if (daRiscrivere) { daRiscrivere = false; scriviRemoto(); } });
   }
 
@@ -318,7 +318,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
     el('fine').hidden = !completato;
     if (completato) testoFine();
     aggiornaConto();
-    stato(dbPronto ? (db ? 'Salvato' : 'Salvato solo su questo dispositivo') : '', dbPronto && !db);
+    stato(dbPronto ? (db ? 'Salvato' : 'Salvato su questo dispositivo') : '', false);
   }
 
   function testoFine() {
@@ -381,7 +381,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
     if (snap.data && typeof snap.data === 'object') return snap.data;
     return snap.schede ? snap : null;
   }
-  var scaduto = setTimeout(function () { if (!dbPronto) { dbPronto = true; if (persona) stato('Salvato solo su questo dispositivo', true); } }, 10000);
+  var scaduto = setTimeout(function () { if (!dbPronto) { dbPronto = true; if (persona) stato('Salvato su questo dispositivo'); } }, 10000);
   (async function () {
     try {
       if (!window.claude || !window.claude.use) throw new Error('assente');
@@ -399,7 +399,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
     clearTimeout(scaduto); dbPronto = true;
     if (persona) {
       if (db && remoto.schede[persona[0]] && !leggiLocale(persona[0])) mostra(persona[0]);
-      else stato(db ? 'Salvato' : 'Salvato solo su questo dispositivo', !db);
+      else stato(db ? 'Salvato' : 'Salvato su questo dispositivo', false);
     }
   })();
 })();
